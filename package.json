@@ -5,6 +5,7 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
+    "build": "npm --prefix server install && npm --prefix client install && npm --prefix client run build",
     "test:e2e": "node -e \"require('./server/server.js'); setTimeout(() => require('./server/test-e2e.js')().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); }), 1000);\"",
     "build:client": "cd client && npm run build",
     "dev:server": "node server/server.js",
