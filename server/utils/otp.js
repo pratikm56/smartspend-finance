@@ -7,12 +7,18 @@ function generateOTP() {
 }
 
 // Configured nodemailer transporter (SMTP / Gmail / Brevo / SendGrid / Resend)
+// Configured nodemailer transporter (SMTP / Gmail / Brevo / SendGrid / Resend)
 function getMailTransporter() {
-  const host = process.env.SMTP_HOST;
+  const host = process.env.SMTP_HOST?.trim();
   const port = parseInt(process.env.SMTP_PORT) || 587;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const service = process.env.SMTP_SERVICE; // e.g. 'gmail'
+  const user = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
+  // Clean app password by removing any spaces (Google shows app passwords as 'xxxx xxxx xxxx xxxx')
+  const pass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
+  const service = process.env.SMTP_SERVICE ? process.env.SMTP_SERVICE.trim() : null;
+
+  if (!user || !pass) {
+    return null;
+  }
 
   if (service) {
     return nodemailer.createTransport({
@@ -21,7 +27,7 @@ function getMailTransporter() {
     });
   }
 
-  if (host && user && pass) {
+  if (host) {
     return nodemailer.createTransport({
       host,
       port,
@@ -30,18 +36,23 @@ function getMailTransporter() {
     });
   }
 
-  return null;
+  // Default to Gmail if email address ends in @gmail.com or no host was provided
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass }
+  });
 }
 
 // Dispatch real-time HTML email with the OTP code
 async function sendOTPEmail(email, otp, purpose) {
   const transporter = getMailTransporter();
   const purposeTitle = purpose === 'RESET_PASSWORD' ? 'Password Reset Verification' : 'Verify Your Email Address';
-  const fromName = process.env.SMTP_FROM || '"SmartSpend AI" <no-reply@smartspend.io>';
+  const defaultFrom = process.env.SMTP_USER ? `"SmartSpend AI" <${process.env.SMTP_USER}>` : '"SmartSpend AI" <no-reply@smartspend.io>';
+  const fromName = process.env.SMTP_FROM || defaultFrom;
 
   if (!transporter) {
-    console.log(`\n[Realtime OTP Notice] No SMTP configured in .env. Falling back to local console.`);
-    console.log(`To enable realtime email delivery, set SMTP_USER and SMTP_PASS (e.g. Gmail App Password) in .env.`);
+    console.log(`\n[Realtime OTP Notice] No SMTP credentials configured. Falling back to console.`);
+    console.log(`To enable realtime email delivery, set SMTP_USER and SMTP_PASS in environment variables.`);
     return { sent: false, reason: 'NO_SMTP_CONFIG' };
   }
 
@@ -154,5 +165,6 @@ module.exports = {
   generateOTP,
   saveOTP,
   sendOTPEmail,
-  verifyOTP
+  verifyOTP,
+  getMailTransporter
 };

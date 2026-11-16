@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { JWT_SECRET, authenticateToken } = require('../middleware/auth');
-const { saveOTP, verifyOTP, sendOTPEmail } = require('../utils/otp');
+const { saveOTP, verifyOTP, sendOTPEmail, getMailTransporter } = require('../utils/otp');
 
 // Helper to generate JWT token
 function generateToken(user) {
@@ -350,6 +350,46 @@ router.put('/change-password', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Change password error:', err);
     return res.status(500).json({ error: 'Failed to change password.' });
+  }
+});
+
+// 10. SMTP Diagnostic Check
+router.get('/test-smtp', async (req, res) => {
+  const hasUser = !!process.env.SMTP_USER;
+  const hasPass = !!process.env.SMTP_PASS;
+
+  if (!hasUser || !hasPass) {
+    return res.status(400).json({
+      configured: false,
+      message: 'SMTP credentials missing. Please set SMTP_USER and SMTP_PASS in your hosting environment variables.',
+      hasUser,
+      hasPass
+    });
+  }
+
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    return res.status(400).json({
+      configured: false,
+      message: 'Failed to initialize email transporter.'
+    });
+  }
+
+  try {
+    await transporter.verify();
+    return res.json({
+      configured: true,
+      status: 'success',
+      message: 'SMTP connection verified successfully! Email delivery is ready.'
+    });
+  } catch (err) {
+    console.error('[SMTP Verification Error]:', err.message);
+    return res.status(500).json({
+      configured: true,
+      status: 'error',
+      message: 'Failed to authenticate with SMTP provider.',
+      error: err.message
+    });
   }
 });
 

@@ -40,10 +40,19 @@ app.use('/api/seed', seedRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
+  const hasUser = !!process.env.SMTP_USER;
+  const hasPass = !!process.env.SMTP_PASS;
   res.json({
     status: 'online',
     product: 'SmartSpend Personal Finance & Spending Analytics',
     version: '2.0.0',
+    smtp: {
+      configured: hasUser && hasPass,
+      hasUser,
+      hasPass,
+      user: process.env.SMTP_USER ? process.env.SMTP_USER.replace(/(.{2})(.*)(@.*)/, '$1***$3') : null,
+      service: process.env.SMTP_SERVICE || (hasUser ? 'gmail (default)' : null)
+    },
     timestamp: new Date().toISOString()
   });
 });
