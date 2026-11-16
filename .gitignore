@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production build
+client/dist/
+
+# Environment Variables
+.env
+server/.env
+*.env.local
+
+# Databases and SQLite WAL files
+*.db
+*.db-wal
+*.db-shm
+smartspend.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
