@@ -1,0 +1,23 @@
+{
+  "name": "smartspend",
+  "version": "2.0.0",
+  "description": "SmartSpend – AI-Powered Personal Finance & Spending Analytics",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "test:e2e": "node -e \"require('./server/server.js'); setTimeout(() => require('./server/test-e2e.js')().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); }), 1000);\"",
+    "build:client": "cd client && npm run build",
+    "dev:server": "node server/server.js",
+    "dev:client": "cd client && npm run dev"
+  },
+  "keywords": [
+    "fintech",
+    "finance",
+    "analytics",
+    "ai",
+    "prediction",
+    "budgeting"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
