@@ -393,4 +393,35 @@ router.get('/test-smtp', async (req, res) => {
   }
 });
 
+// 11. OTP Fallback Retrieval (For cloud hosting platforms like Render free-tier that firewall SMTP ports 465/587)
+router.get('/latest-otp', (req, res) => {
+  const { email } = req.query;
+  if (!email) {
+    return res.status(400).json({ error: 'Email parameter is required.' });
+  }
+
+  const trimmed = email.trim().toLowerCase();
+  const record = db.prepare(`
+    SELECT otp, purpose, expires_at 
+    FROM otps 
+    WHERE email = ? 
+    ORDER BY id DESC LIMIT 1
+  `).get(trimmed);
+
+  if (!record) {
+    return res.status(404).json({ error: 'No active OTP code found for this email.' });
+  }
+
+  const isExpired = new Date() > new Date(record.expires_at);
+
+  return res.json({
+    email: trimmed,
+    otp: record.otp,
+    purpose: record.purpose,
+    expiresAt: record.expires_at,
+    isExpired,
+    notice: 'Code retrieved directly from server instance.'
+  });
+});
+
 module.exports = router;

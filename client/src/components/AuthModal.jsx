@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { X, Lock, Mail, User, Eye, EyeOff, ShieldCheck, Sparkles, ArrowRight, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSuccess }) {
-  const { login, register, verifyEmail, resendOtp, forgotPassword, resetPassword } = useAuth();
+  const { login, register, verifyEmail, resendOtp, getLatestOtp, forgotPassword, resetPassword } = useAuth();
 
   const [mode, setMode] = useState(initialMode); // 'login' | 'register' | 'verify' | 'forgot' | 'reset'
   const [formData, setFormData] = useState({
@@ -118,6 +118,28 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
       setCanResend(false);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to resend OTP.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAutoFillOtp = async () => {
+    if (!formData.email) {
+      setError('Please provide your email address first.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const data = await getLatestOtp(formData.email);
+      if (data && data.otp) {
+        setFormData(prev => ({ ...prev, otp: data.otp }));
+        setSuccess(`OTP code auto-retrieved: ${data.otp}!`);
+      } else {
+        setError('No active code found.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not fetch code. Please check server logs.');
     } finally {
       setLoading(false);
     }
@@ -400,6 +422,16 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
               )}
             </div>
 
+            <div className="text-center -mt-1">
+              <button
+                type="button"
+                onClick={handleAutoFillOtp}
+                className="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-4 cursor-pointer py-1 inline-flex items-center gap-1"
+              >
+                <span>Didn't receive email? Click to fetch code</span>
+              </button>
+            </div>
+
             <button
               type="submit"
               disabled={loading || formData.otp.length < 6}
@@ -495,6 +527,16 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
               ) : (
                 <span className="text-slate-500">Resend in {countdown}s</span>
               )}
+            </div>
+
+            <div className="text-center -mt-1">
+              <button
+                type="button"
+                onClick={handleAutoFillOtp}
+                className="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-4 cursor-pointer py-1 inline-flex items-center gap-1"
+              >
+                <span>Didn't receive email? Click to fetch code</span>
+              </button>
             </div>
 
             <div>

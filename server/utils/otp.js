@@ -20,10 +20,17 @@ function getMailTransporter() {
     return null;
   }
 
+  const timeoutOptions = {
+    connectionTimeout: 5000, // 5s timeout to prevent hanging on cloud firewalls
+    greetingTimeout: 5000,
+    socketTimeout: 5000
+  };
+
   if (service) {
     return nodemailer.createTransport({
       service,
-      auth: { user, pass }
+      auth: { user, pass },
+      ...timeoutOptions
     });
   }
 
@@ -32,29 +39,72 @@ function getMailTransporter() {
       host,
       port,
       secure: port === 465,
-      auth: { user, pass }
+      auth: { user, pass },
+      ...timeoutOptions
     });
   }
 
   // Default to Gmail if email address ends in @gmail.com or no host was provided
   return nodemailer.createTransport({
     service: 'gmail',
-    auth: { user, pass }
+    auth: { user, pass },
+    ...timeoutOptions
   });
+}
+
+// Dispatch via Brevo HTTP API (Port 443 HTTPS - bypasses cloud SMTP port blocking)
+async function sendViaBrevo(apiKey, fromEmail, toEmail, subject, htmlContent) {
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: { name: 'SmartSpend AI', email: fromEmail },
+      to: [{ email: toEmail }],
+      subject: subject,
+      htmlContent: htmlContent
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Brevo API Error (${res.status}): ${errText}`);
+  }
+  return await res.json();
+}
+
+// Dispatch via Resend HTTP API (Port 443 HTTPS - bypasses cloud SMTP port blocking)
+async function sendViaResend(apiKey, fromEmail, toEmail, subject, htmlContent) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: fromEmail || 'SmartSpend <onboarding@resend.dev>',
+      to: [toEmail],
+      subject: subject,
+      html: htmlContent
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Resend API Error (${res.status}): ${errText}`);
+  }
+  return await res.json();
 }
 
 // Dispatch real-time HTML email with the OTP code
 async function sendOTPEmail(email, otp, purpose) {
-  const transporter = getMailTransporter();
   const purposeTitle = purpose === 'RESET_PASSWORD' ? 'Password Reset Verification' : 'Verify Your Email Address';
   const defaultFrom = process.env.SMTP_USER ? `"SmartSpend AI" <${process.env.SMTP_USER}>` : '"SmartSpend AI" <no-reply@smartspend.io>';
   const fromName = process.env.SMTP_FROM || defaultFrom;
-
-  if (!transporter) {
-    console.log(`\n[Realtime OTP Notice] No SMTP credentials configured. Falling back to console.`);
-    console.log(`To enable realtime email delivery, set SMTP_USER and SMTP_PASS in environment variables.`);
-    return { sent: false, reason: 'NO_SMTP_CONFIG' };
-  }
+  const emailSubject = purpose === 'RESET_PASSWORD'
+    ? `[SmartSpend] ${otp} is your password reset code`
+    : `[SmartSpend] ${otp} is your verification code`;
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -95,23 +145,52 @@ async function sendOTPEmail(email, otp, purpose) {
     </html>
   `;
 
-  try {
-    const emailSubject = purpose === 'RESET_PASSWORD'
-      ? `[SmartSpend] ${otp} is your password reset code`
-      : `[SmartSpend] ${otp} is your verification code`;
-
-    const info = await transporter.sendMail({
-      from: fromName,
-      to: email,
-      subject: emailSubject,
-      html: htmlContent
-    });
-    console.log(`[SmartSpend Realtime Email] Dispatched OTP ${otp} to ${email} (MessageID: ${info.messageId})`);
-    return { sent: true, messageId: info.messageId };
-  } catch (mailErr) {
-    console.error(`[SmartSpend Realtime Email Error] Failed to send email to ${email}:`, mailErr.message);
-    return { sent: false, error: mailErr.message };
+  // 1. Try Brevo HTTP API (Port 443 - zero block on Render)
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const senderEmail = process.env.BREVO_SENDER || process.env.SMTP_USER || 'tagsounds@gmail.com';
+      await sendViaBrevo(process.env.BREVO_API_KEY, senderEmail, email, emailSubject, htmlContent);
+      console.log(`[SmartSpend Realtime Email (Brevo HTTP)] Dispatched OTP ${otp} to ${email}`);
+      return { sent: true, provider: 'brevo' };
+    } catch (brevoErr) {
+      console.error(`[Brevo API Error]:`, brevoErr.message);
+    }
   }
+
+  // 2. Try Resend HTTP API (Port 443 - zero block on Render)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await sendViaResend(process.env.RESEND_API_KEY, process.env.RESEND_FROM, email, emailSubject, htmlContent);
+      console.log(`[SmartSpend Realtime Email (Resend HTTP)] Dispatched OTP ${otp} to ${email}`);
+      return { sent: true, provider: 'resend' };
+    } catch (resendErr) {
+      console.error(`[Resend API Error]:`, resendErr.message);
+    }
+  }
+
+  // 3. Try Nodemailer SMTP (will timeout quickly on Render free tier due to port 465/587 blocks)
+  const transporter = getMailTransporter();
+  if (transporter) {
+    try {
+      const info = await transporter.sendMail({
+        from: fromName,
+        to: email,
+        subject: emailSubject,
+        html: htmlContent
+      });
+      console.log(`[SmartSpend Realtime Email (SMTP)] Dispatched OTP ${otp} to ${email} (MessageID: ${info.messageId})`);
+      return { sent: true, messageId: info.messageId, provider: 'smtp' };
+    } catch (mailErr) {
+      console.error(`[SmartSpend Realtime Email Error] SMTP delivery failed to ${email}:`, mailErr.message);
+      if (mailErr.message && mailErr.message.includes('timeout')) {
+        console.warn(`[Hosting Note] Cloud hosting providers (e.g. Render Free Tier) firewall outbound SMTP ports (465/587). The OTP is logged above or available via /api/auth/latest-otp.`);
+      }
+      return { sent: false, error: mailErr.message };
+    }
+  }
+
+  console.log(`\n[Realtime OTP Notice] No active email provider configured. Falling back to server logs.`);
+  return { sent: false, reason: 'NO_EMAIL_CONFIG' };
 }
 
 function saveOTP(email, purpose, validityMinutes = 10) {

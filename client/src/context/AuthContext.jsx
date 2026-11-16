@@ -87,6 +87,11 @@ export const AuthProvider = ({ children }) => {
     return res.data;
   };
 
+  const getLatestOtp = async (email) => {
+    const res = await api.get(`/auth/latest-otp?email=${encodeURIComponent(email)}`);
+    return res.data;
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -108,6 +113,7 @@ export const AuthProvider = ({ children }) => {
         register,
         verifyEmail,
         resendOtp,
+        getLatestOtp,
         forgotPassword,
         resetPassword,
         updateProfile,
